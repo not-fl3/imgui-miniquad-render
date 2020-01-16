@@ -1,0 +1,10 @@
+[package]
+name = "imgui-miniquad-render"
+version = "0.1.0"
+authors = ["not-fl3 <not.fl3@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+miniquad = { version = "0.2.3" }
+glam = {version = "0.8", features = ["scalar-math"] }
+imgui = { version = "0.2.1" }
