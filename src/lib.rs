@@ -1,87 +1,105 @@
 use miniquad::Context as QuadContext;
 use miniquad::*;
 
-use std::collections::HashSet;
-
 use imgui::{DrawCmd, DrawCmdParams};
 
-const MAX_VERTICES: usize = 10000;
-const MAX_INDICES: usize = 5000;
+const MAX_VERTICES: usize = 100000;
+const MAX_INDICES: usize = 50000;
 
-struct Stage {    
+struct Stage {
     imgui: imgui::Context,
     last_frame: std::time::Instant,
 
     pipeline: Pipeline,
     font_texture: Texture,
     draw_calls: Vec<Bindings>,
-    keys_pressed: HashSet<KeyCode>,
 
     f: Box<dyn FnMut(&mut imgui::Ui) -> ()>,
 }
 
 impl Stage {
     fn new(ctx: &mut QuadContext, f: Box<dyn FnMut(&mut imgui::Ui) -> ()>) -> Stage {
-            let shader = Shader::new(ctx, shader::VERTEX, shader::FRAGMENT, shader::META);
-    
-            let pipeline = Pipeline::with_params(
-                ctx,
-                &[BufferLayout::default()],
-                &[
-                    VertexAttribute::new("position", VertexFormat::Float2),
-                    VertexAttribute::new("texcoord", VertexFormat::Float2),
-                    VertexAttribute::new("color0", VertexFormat::Byte4),
-                ],
-                shader,
-                PipelineParams {
-                    color_blend: Some((
-                        Equation::Add,
-                        BlendFactor::Value(BlendValue::SourceAlpha),
-                        BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
-                    )),
-                    ..Default::default()
-                },
-            );
-    
+        let shader = Shader::new(ctx, shader::VERTEX, shader::FRAGMENT, shader::META);
 
-            let mut imgui = imgui::Context::create();
+        let pipeline = Pipeline::with_params(
+            ctx,
+            &[BufferLayout::default()],
+            &[
+                VertexAttribute::new("position", VertexFormat::Float2),
+                VertexAttribute::new("texcoord", VertexFormat::Float2),
+                VertexAttribute::new("color0", VertexFormat::Byte4),
+            ],
+            shader,
+            PipelineParams {
+                color_blend: Some((
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
+        );
 
-            {
-                use imgui::*;
+        let mut imgui = imgui::Context::create();
 
-                imgui.fonts().add_font(&[FontSource::DefaultFontData {
-                    config: Some(FontConfig {
-                        size_pixels: 13.0,
-                        ..FontConfig::default()
-                    }),
-                }]);
+        {
+            use imgui::*;
 
-                let (w, h) = ctx.screen_size();
-                let mut io = imgui.io_mut();
-                io.font_global_scale = 1.0;
-                io.display_size = [w, h];
-                io.mouse_pos = [0., 0.];
-            }
-    
-            let font_texture = {
-                let mut fonts = imgui.fonts();
-                let texture = fonts.build_rgba32_texture();
-    
-                Texture::from_rgba8(texture.width as u16, texture.height as u16, texture.data)
-            };
+            imgui.fonts().add_font(&[FontSource::DefaultFontData {
+                config: Some(FontConfig {
+                    rasterizer_multiply: 1.75,
+                    ..FontConfig::default()
+                }),
+            }]);
 
-            Stage {
-                imgui,
-                pipeline,
-                font_texture,
-                last_frame: std::time::Instant::now(),
-                draw_calls: Vec::with_capacity(200),    
-                keys_pressed: HashSet::new(),
-                f
-            }
+            let (w, h) = ctx.screen_size();
+            let mut io = imgui.io_mut();
+
+            io[Key::Tab] = KeyCode::Tab as _;
+            io[Key::LeftArrow] = KeyCode::Left as _;
+            io[Key::RightArrow] = KeyCode::Right as _;
+            io[Key::UpArrow] = KeyCode::Up as _;
+            io[Key::DownArrow] = KeyCode::Down as _;
+            io[Key::PageUp] = KeyCode::PageUp as _;
+            io[Key::PageDown] = KeyCode::PageDown as _;
+            io[Key::Home] = KeyCode::Home as _;
+            io[Key::End] = KeyCode::End as _;
+            io[Key::Insert] = KeyCode::Insert as _;
+            io[Key::Delete] = KeyCode::Delete as _;
+            io[Key::Backspace] = KeyCode::Backspace as _;
+            io[Key::Space] = KeyCode::Space as _;
+            io[Key::Enter] = KeyCode::Enter as _;
+            io[Key::Escape] = KeyCode::Escape as _;
+            io[Key::KeyPadEnter] = KeyCode::KpEnter as _;
+            io[Key::A] = KeyCode::A as _;
+            io[Key::C] = KeyCode::C as _;
+            io[Key::V] = KeyCode::V as _;
+            io[Key::X] = KeyCode::X as _;
+            io[Key::Y] = KeyCode::Y as _;
+            io[Key::Z] = KeyCode::Z as _;
+
+            io.font_global_scale = 1.0;
+            io.display_size = [w, h];
+            io.mouse_pos = [0., 0.];
         }
-    
+
+        let font_texture = {
+            let mut fonts = imgui.fonts();
+            let texture = fonts.build_rgba32_texture();
+
+            Texture::from_rgba8(texture.width as u16, texture.height as u16, texture.data)
+        };
+
+        Stage {
+            imgui,
+            pipeline,
+            font_texture,
+            last_frame: std::time::Instant::now(),
+            draw_calls: Vec::with_capacity(200),
+            f,
+        }
     }
+}
 
 impl EventHandler for Stage {
     fn resize_event(&mut self, _ctx: &mut QuadContext, width: f32, height: f32) {
@@ -89,12 +107,21 @@ impl EventHandler for Stage {
         io.display_size = [width, height];
     }
 
+    fn char_event(&mut self, _: &mut QuadContext, character: char, _: KeyMods, _: bool) {
+        let io = self.imgui.io_mut();
+
+        io.add_input_character(character);
+    }
+
     fn key_down_event(&mut self, _: &mut QuadContext, keycode: KeyCode, _: KeyMods, _: bool) {
-        self.keys_pressed.insert(keycode);
+        let mut io = self.imgui.io_mut();
+
+        io.keys_down[keycode as usize] = true;
     }
 
     fn key_up_event(&mut self, _: &mut QuadContext, keycode: KeyCode, _: KeyMods) {
-        self.keys_pressed.remove(&keycode);
+        let mut io = self.imgui.io_mut();
+        io.keys_down[keycode as usize] = false;
     }
 
     fn mouse_motion_event(&mut self, _ctx: &mut QuadContext, x: f32, y: f32, _dx: f32, _dy: f32) {
@@ -133,6 +160,7 @@ impl EventHandler for Stage {
             self.last_frame = io.update_delta_time(self.last_frame);
             let mut ui = self.imgui.frame();
             (self.f)(&mut ui);
+
             ui.render()
         };
 
@@ -178,11 +206,7 @@ impl EventHandler for Stage {
                 match cmd {
                     DrawCmd::Elements {
                         count,
-                        cmd_params:
-                            DrawCmdParams {
-                                clip_rect,
-                                ..
-                            },
+                        cmd_params: DrawCmdParams { clip_rect, .. },
                     } => {
                         let clip_rect = [
                             (clip_rect[0] - clip_off[0]) * clip_scale[0],
@@ -199,7 +223,7 @@ impl EventHandler for Stage {
                             (clip_rect[2] - clip_rect[0]) as i32,
                             h as i32,
                         );
-                        
+
                         ctx.apply_bindings(&dc);
                         ctx.apply_uniforms(&shader::Uniforms { projection });
                         ctx.draw(slice_start, count as i32, 1);
