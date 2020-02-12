@@ -3,6 +3,8 @@ use miniquad::*;
 
 use imgui::{DrawCmd, DrawCmdParams};
 
+use std::{cell::RefCell, rc::Rc};
+
 const MAX_VERTICES: usize = 100000;
 const MAX_INDICES: usize = 50000;
 
@@ -14,15 +16,59 @@ struct Stage {
     font_texture: Texture,
     draw_calls: Vec<Bindings>,
 
-    f: Box<dyn FnMut(&mut imgui::Ui) -> ()>,
+    on_draw: Box<dyn FnMut(&mut imgui::Ui) -> ()>,
+    on_quit: Option<Box<dyn FnOnce() -> ()>>,
+
+    ctx: Rc<RefCell<QuadContext>>,
+}
+
+struct Clipboard {
+    ctx: Rc<RefCell<QuadContext>>,
+}
+
+impl imgui::ClipboardBackend for Clipboard {
+    fn get(&mut self) -> Option<imgui::ImString> {
+        let clipboard = miniquad::clipboard::get(&mut *self.ctx.borrow_mut());
+
+        clipboard.map(|s| imgui::ImString::new(s))
+    }
+
+    fn set(&mut self, value: &imgui::ImStr) {
+        miniquad::clipboard::set(&mut *self.ctx.borrow_mut(), value.to_str());
+    }
+}
+
+/// Platform dependent APIs not directly connected to imgui
+pub mod platform {
+    use miniquad::Context as QuadContext;
+    use std::{cell::RefCell, rc::Rc};
+
+    static mut QUAD_CONTEXT: Option<Rc<RefCell<QuadContext>>> = None;
+
+    pub(crate) fn set_ctx(ctx: Rc<RefCell<QuadContext>>) {
+        unsafe { QUAD_CONTEXT = Some(ctx) };
+    }
+
+    /// Close window. "quit" event will be triggered.
+    pub fn request_quit() {
+        unsafe { QUAD_CONTEXT.as_ref() }
+            .unwrap()
+            .borrow_mut()
+            .request_quit();
+    }
 }
 
 impl Stage {
-    fn new(ctx: &mut QuadContext, f: Box<dyn FnMut(&mut imgui::Ui) -> ()>) -> Stage {
-        let shader = Shader::new(ctx, shader::VERTEX, shader::FRAGMENT, shader::META);
+    fn new(
+        mut ctx: QuadContext,
+        on_draw: Box<dyn FnMut(&mut imgui::Ui) -> ()>,
+        on_init: Option<Box<dyn FnOnce(&mut imgui::Context)>>,
+        on_quit: Option<Box<dyn FnOnce()>>,
+    ) -> Stage {
+        let shader = Shader::new(&mut ctx, shader::VERTEX, shader::FRAGMENT, shader::META);
 
         let pipeline = Pipeline::with_params(
-            ctx,
+            &mut ctx,
             &[BufferLayout::default()],
             &[
                 VertexAttribute::new("position", VertexFormat::Float2),
@@ -87,8 +133,23 @@ impl Stage {
             let mut fonts = imgui.fonts();
             let texture = fonts.build_rgba32_texture();
 
-            Texture::from_rgba8(texture.width as u16, texture.height as u16, texture.data)
+            Texture::from_rgba8(
+                &mut ctx,
+                texture.width as u16,
+                texture.height as u16,
+                texture.data,
+            )
         };
+
+        let ctx = Rc::new(RefCell::new(ctx));
+
+        imgui.set_clipboard_backend(Box::new(Clipboard { ctx: ctx.clone() }));
+
+        platform::set_ctx(ctx.clone());
+
+        if let Some(on_init) = on_init {
+            on_init(&mut imgui);
+        }
 
         Stage {
             imgui,
@@ -96,73 +157,88 @@ impl Stage {
             font_texture,
             last_frame: std::time::Instant::now(),
             draw_calls: Vec::with_capacity(200),
-            f,
+            on_draw,
+            on_quit,
+            ctx,
         }
     }
 }
 
-impl EventHandler for Stage {
-    fn resize_event(&mut self, _ctx: &mut QuadContext, width: f32, height: f32) {
+impl EventHandlerFree for Stage {
+    fn resize_event(&mut self, width: f32, height: f32) {
         let mut io = self.imgui.io_mut();
         io.display_size = [width, height];
     }
 
-    fn char_event(&mut self, _: &mut QuadContext, character: char, _: KeyMods, _: bool) {
+    fn char_event(&mut self, character: char, mods: KeyMods, _: bool) {
         let io = self.imgui.io_mut();
+
+        io.key_ctrl = mods.ctrl;
+        io.key_alt = mods.alt;
+        io.key_shift = mods.shift;
 
         io.add_input_character(character);
     }
 
-    fn key_down_event(&mut self, _: &mut QuadContext, keycode: KeyCode, _: KeyMods, _: bool) {
+    fn key_down_event(&mut self, keycode: KeyCode, mods: KeyMods, _: bool) {
         let mut io = self.imgui.io_mut();
+
+        io.key_ctrl = mods.ctrl;
+        io.key_alt = mods.alt;
+        io.key_shift = mods.shift;
 
         io.keys_down[keycode as usize] = true;
     }
 
-    fn key_up_event(&mut self, _: &mut QuadContext, keycode: KeyCode, _: KeyMods) {
+    fn key_up_event(&mut self, keycode: KeyCode, mods: KeyMods) {
         let mut io = self.imgui.io_mut();
+
+        io.key_ctrl = mods.ctrl;
+        io.key_alt = mods.alt;
+        io.key_shift = mods.shift;
+
         io.keys_down[keycode as usize] = false;
     }
 
-    fn mouse_motion_event(&mut self, _ctx: &mut QuadContext, x: f32, y: f32, _dx: f32, _dy: f32) {
+    fn mouse_motion_event(&mut self, x: f32, y: f32, _dx: f32, _dy: f32) {
         let mut io = self.imgui.io_mut();
         io.mouse_pos = [x, y];
     }
-    fn mouse_wheel_event(&mut self, _ctx: &mut QuadContext, _x: f32, _y: f32) {}
-    fn mouse_button_down_event(
-        &mut self,
-        _: &mut QuadContext,
-        button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
+    fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
+        let mut io = self.imgui.io_mut();
+        io.mouse_wheel = y;
+    }
+    fn mouse_button_down_event(&mut self, button: MouseButton, _x: f32, _y: f32) {
         let mut io = self.imgui.io_mut();
         let mouse_left = button == MouseButton::Left;
         let mouse_right = button == MouseButton::Right;
         io.mouse_down = [mouse_left, mouse_right, false, false, false];
     }
-    fn mouse_button_up_event(
-        &mut self,
-        _: &mut QuadContext,
-        _button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
+    fn mouse_button_up_event(&mut self, _button: MouseButton, _x: f32, _y: f32) {
         let mut io = self.imgui.io_mut();
         io.mouse_down = [false, false, false, false, false];
     }
 
-    fn update(&mut self, _ctx: &mut QuadContext) {}
+    fn update(&mut self) {}
 
-    fn draw(&mut self, ctx: &mut QuadContext) {
+    fn quit_requested_event(&mut self) {
+        if let Some(on_quit) = self.on_quit.take() {
+            on_quit();
+        }
+    }
+
+    fn draw(&mut self) {
         let draw_data = {
             let io = self.imgui.io_mut();
             self.last_frame = io.update_delta_time(self.last_frame);
             let mut ui = self.imgui.frame();
-            (self.f)(&mut ui);
+            (self.on_draw)(&mut ui);
 
             ui.render()
         };
+
+        let mut ctx = self.ctx.borrow_mut();
+        let ctx = &mut *ctx;
 
         let (width, height) = ctx.screen_size();
         let projection = glam::Mat4::orthographic_rh_gl(0., width, height, 0., -1., 1.);
@@ -241,17 +317,22 @@ impl EventHandler for Stage {
 }
 
 pub struct Window {
-    on_init: Option<Box<dyn FnOnce() -> ()>>,
+    on_init: Option<Box<dyn FnOnce(&mut imgui::Context) -> ()>>,
+    on_quit: Option<Box<dyn FnOnce() -> ()>>,
 }
 
 impl Window {
     pub fn new(_label: &str) -> Window {
-        Window { on_init: None }
+        Window {
+            on_init: None,
+            on_quit: None,
+        }
     }
 
-    pub fn on_init(self, f: impl FnOnce() -> ()) -> Self {
-        let closure: Box<dyn FnOnce()> = Box::new(f);
-        let closure: Box<dyn FnOnce() + 'static> = unsafe { std::mem::transmute(closure) };
+    pub fn on_init(self, f: impl FnOnce(&mut imgui::Context)) -> Self {
+        let closure: Box<dyn FnOnce(&mut imgui::Context)> = Box::new(f);
+        let closure: Box<dyn FnOnce(&mut imgui::Context) + 'static> =
+            unsafe { std::mem::transmute(closure) };
 
         Self {
             on_init: Some(closure),
@@ -259,22 +340,28 @@ impl Window {
         }
     }
 
-    pub fn main_loop(mut self, f: impl FnMut(&mut imgui::Ui) -> ()) -> ! {
-        let f = Box::new(f);
+    pub fn on_quit(self, f: impl FnOnce()) -> Self {
+        let closure: Box<dyn FnOnce()> = Box::new(f);
+        let closure: Box<dyn FnOnce() + 'static> = unsafe { std::mem::transmute(closure) };
+
+        Self {
+            on_quit: Some(closure),
+            ..self
+        }
+    }
+
+    pub fn main_loop(self, on_draw: impl FnMut(&mut imgui::Ui) -> ()) -> ! {
+        let on_draw = Box::new(on_draw);
 
         // Allocate `clsoure` on the heap and erase the lifetime bound.
         // This is safe because we will never leave this function (alive)
         // The same applies for closure in on_init
-        let closure: Box<dyn FnMut(&mut imgui::Ui)> = Box::new(f);
+        let closure: Box<dyn FnMut(&mut imgui::Ui)> = Box::new(on_draw);
         let closure: Box<dyn FnMut(&mut imgui::Ui) + 'static> =
             unsafe { std::mem::transmute(closure) };
 
         miniquad::start(conf::Conf::default(), move |ctx| {
-            if let Some(on_init) = self.on_init.take() {
-                on_init();
-            }
-
-            Box::new(Stage::new(ctx, closure))
+            UserData::free(Stage::new(ctx, closure, self.on_init, self.on_quit))
         });
 
         std::process::exit(0)
