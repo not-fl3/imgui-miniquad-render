@@ -200,7 +200,7 @@ impl EventHandlerFree for Stage {
         io.keys_down[keycode as usize] = false;
     }
 
-    fn mouse_motion_event(&mut self, x: f32, y: f32, _dx: f32, _dy: f32) {
+    fn mouse_motion_event(&mut self, x: f32, y: f32) {
         let mut io = self.imgui.io_mut();
         io.mouse_pos = [x, y];
     }
