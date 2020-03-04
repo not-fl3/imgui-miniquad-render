@@ -183,6 +183,7 @@ impl EventHandlerFree for Stage {
     fn key_down_event(&mut self, keycode: KeyCode, mods: KeyMods, _: bool) {
         let mut io = self.imgui.io_mut();
 
+        // when the keycode is the modifier itself - mods.MODIFIER is false yet, however the modifier button is just pressed and is actually true
         io.key_ctrl = mods.ctrl;
         io.key_alt = mods.alt;
         io.key_shift = mods.shift;
@@ -193,9 +194,10 @@ impl EventHandlerFree for Stage {
     fn key_up_event(&mut self, keycode: KeyCode, mods: KeyMods) {
         let mut io = self.imgui.io_mut();
 
-        io.key_ctrl = mods.ctrl;
-        io.key_alt = mods.alt;
-        io.key_shift = mods.shift;
+        // when the keycode is the modifier itself - mods.MODIFIER is true, however the modifier is actually released
+        io.key_ctrl = keycode != KeyCode::LeftControl && keycode != KeyCode::RightControl && mods.ctrl;
+        io.key_alt = keycode != KeyCode::LeftAlt && keycode != KeyCode::RightAlt && mods.alt;
+        io.key_shift = keycode != KeyCode::LeftShift && keycode != KeyCode::RightShift && mods.shift;
 
         io.keys_down[keycode as usize] = false;
     }
