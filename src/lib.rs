@@ -1,11 +1,11 @@
 use miniquad::Context as QuadContext;
 use miniquad::*;
 
-use imgui::{DrawCmd, DrawCmdParams};
+use imgui::{DrawCmd, DrawCmdParams, DrawVert};
 
 use std::{cell::RefCell, rc::Rc};
 
-const MAX_VERTICES: usize = 100000;
+const MAX_VERTICES: usize = 30000;
 const MAX_INDICES: usize = 50000;
 
 struct Stage {
@@ -195,9 +195,11 @@ impl EventHandlerFree for Stage {
         let mut io = self.imgui.io_mut();
 
         // when the keycode is the modifier itself - mods.MODIFIER is true, however the modifier is actually released
-        io.key_ctrl = keycode != KeyCode::LeftControl && keycode != KeyCode::RightControl && mods.ctrl;
+        io.key_ctrl =
+            keycode != KeyCode::LeftControl && keycode != KeyCode::RightControl && mods.ctrl;
         io.key_alt = keycode != KeyCode::LeftAlt && keycode != KeyCode::RightAlt && mods.alt;
-        io.key_shift = keycode != KeyCode::LeftShift && keycode != KeyCode::RightShift && mods.shift;
+        io.key_shift =
+            keycode != KeyCode::LeftShift && keycode != KeyCode::RightShift && mods.shift;
 
         io.keys_down[keycode as usize] = false;
     }
@@ -258,7 +260,7 @@ impl EventHandlerFree for Stage {
                 let vertex_buffer = Buffer::stream(
                     ctx,
                     BufferType::VertexBuffer,
-                    MAX_VERTICES * std::mem::size_of::<f32>(),
+                    MAX_VERTICES * std::mem::size_of::<DrawVert>(),
                 );
                 let index_buffer = Buffer::stream(
                     ctx,
@@ -267,13 +269,33 @@ impl EventHandlerFree for Stage {
                 );
                 let bindings = Bindings {
                     vertex_buffers: vec![vertex_buffer],
-                    index_buffer: index_buffer,
+                    index_buffer,
                     images: vec![],
                 };
                 self.draw_calls.push(bindings);
             }
 
             let dc = &mut self.draw_calls[n];
+
+            if vertices.len() * std::mem::size_of::<DrawVert>() > dc.vertex_buffers[0].size() {
+                println!("imgui: Vertex buffer too small, reallocating");
+
+                dc.vertex_buffers[0] = Buffer::stream(
+                    ctx,
+                    BufferType::VertexBuffer,
+                    vertices.len() * std::mem::size_of::<DrawVert>(),
+                );
+            }
+
+            if indices.len() * std::mem::size_of::<u16>() > dc.index_buffer.size() {
+                println!("imgui: Index buffer too small, reallocating");
+
+                dc.index_buffer = Buffer::stream(
+                    ctx,
+                    BufferType::IndexBuffer,
+                    indices.len() * std::mem::size_of::<u16>() * std::mem::size_of::<u16>(),
+                );
+            }
 
             dc.vertex_buffers[0].update(ctx, vertices);
             dc.index_buffer.update(ctx, indices);
