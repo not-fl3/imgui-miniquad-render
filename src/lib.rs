@@ -235,7 +235,10 @@ impl EventHandlerFree for Stage {
     fn draw(&mut self) {
         let draw_data = {
             let io = self.imgui.io_mut();
-            self.last_frame = io.update_delta_time(self.last_frame);
+            let now = std::time::Instant::now();
+            io.update_delta_time(now.duration_since(self.last_frame));
+            self.last_frame = now;
+
             let mut ui = self.imgui.frame();
             (self.on_draw)(&mut ui);
 
