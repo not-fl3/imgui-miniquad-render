@@ -65,7 +65,8 @@ impl Stage {
         on_init: Option<Box<dyn FnOnce(&mut imgui::Context)>>,
         on_quit: Option<Box<dyn FnOnce()>>,
     ) -> Stage {
-        let shader = Shader::new(&mut ctx, shader::VERTEX, shader::FRAGMENT, shader::META);
+        let shader =
+            Shader::new(&mut ctx, shader::VERTEX, shader::FRAGMENT, shader::meta()).unwrap();
 
         let pipeline = Pipeline::with_params(
             &mut ctx,
@@ -77,7 +78,7 @@ impl Stage {
             ],
             shader,
             PipelineParams {
-                color_blend: Some((
+                color_blend: Some(BlendState::new(
                     Equation::Add,
                     BlendFactor::Value(BlendValue::SourceAlpha),
                     BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
@@ -395,7 +396,7 @@ impl Window {
 pub use miniquad::KeyCode;
 
 mod shader {
-    use miniquad::{ShaderMeta, UniformBlockLayout, UniformType};
+    use miniquad::{ShaderMeta, UniformBlockLayout, UniformDesc, UniformType};
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec2 position;
@@ -424,12 +425,14 @@ mod shader {
         gl_FragColor = color * texture2D(Texture, uv);
     }"#;
 
-    pub const META: ShaderMeta = ShaderMeta {
-        images: &["Texture"],
-        uniforms: UniformBlockLayout {
-            uniforms: &[("Projection", UniformType::Mat4)],
-        },
-    };
+    pub fn meta() -> ShaderMeta {
+        ShaderMeta {
+            images: vec!["Texture".to_string()],
+            uniforms: UniformBlockLayout {
+                uniforms: vec![UniformDesc::new("Projection", UniformType::Mat4)],
+            },
+        }
+    }
 
     #[repr(C)]
     #[derive(Debug)]
