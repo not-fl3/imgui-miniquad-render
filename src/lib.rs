@@ -138,8 +138,6 @@ impl Stage {
             eprintln!("failed to initialize clipboard!");
         }
 
-        //platform::set_ctx(ctx.clone());
-
         if let Some(on_init) = on_init {
             on_init(&mut imgui);
         }
