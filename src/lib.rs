@@ -34,21 +34,15 @@ impl ClipboardBackend for ClipboardSupport {
 
 /// Platform dependent APIs not directly connected to imgui
 pub mod platform {
-    use miniquad::Context as QuadContext;
-    use std::{cell::RefCell, rc::Rc};
+    use std::cell::RefCell;
 
-    static mut QUAD_CONTEXT: Option<Rc<RefCell<QuadContext>>> = None;
-
-    pub(crate) fn set_ctx(ctx: Rc<RefCell<QuadContext>>) {
-        unsafe { QUAD_CONTEXT = Some(ctx) };
+    thread_local! {
+        pub static QUIT_ORDERED: RefCell<bool> = RefCell::new(false);
     }
 
     /// Close window. "quit" event will be triggered.
     pub fn request_quit() {
-        unsafe { QUAD_CONTEXT.as_ref() }
-            .unwrap()
-            .borrow_mut()
-            .request_quit();
+        QUIT_ORDERED.with(|q| *q.borrow_mut() = true);
     }
 }
 
@@ -242,6 +236,9 @@ impl EventHandler for Stage {
     }
 
     fn draw(&mut self, ctx: &mut QuadContext) {
+        if platform::QUIT_ORDERED.with(|q| *q.borrow()) {
+            ctx.request_quit();
+        }
         let draw_data = {
             let io = self.imgui.io_mut();
             let now = std::time::Instant::now();
@@ -384,15 +381,8 @@ impl Window {
         }
     }
 
-    pub fn main_loop(self, on_draw: impl FnMut(&mut imgui::Ui) -> ()) -> ! {
-        let on_draw = Box::new(on_draw);
-
-        // Allocate `closure` on the heap and erase the lifetime bound.
-        // This is safe because we will never leave this function (alive)
-        // The same applies for closure in on_init
-        let closure: Box<dyn FnMut(&mut imgui::Ui)> = Box::new(on_draw);
-        let closure: Box<dyn FnMut(&mut imgui::Ui) + 'static> =
-            unsafe { std::mem::transmute(closure) };
+    pub fn main_loop(self, on_draw: impl FnMut(&mut imgui::Ui) -> () + 'static) -> ! {
+        let closure = Box::new(on_draw);
 
         miniquad::start(conf::Conf::default(), move |ctx| {
             Box::new(Stage::new(ctx, closure, self.on_init, self.on_quit))
