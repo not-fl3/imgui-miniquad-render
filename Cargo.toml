@@ -9,9 +9,10 @@ repository = "https://github.com/not-fl3/imgui-miniquad-render"
 description = "miniquad based minimal imgui application wrapper"
 
 [dependencies]
-miniquad = { version = "0.3.0-alpha.20" }
+clipboard = "0.5"
+miniquad = { version = "0.3.12" }
 glam = {version = "0.8", features = ["scalar-math"] }
-imgui = { version = "0.5.0" }
+imgui = { version = "0.8.2" }
 
 #[patch.crates-io]
 #miniquad = { path = '../miniquad' }
