@@ -1,8 +1,6 @@
 use miniquad::Context as QuadContext;
 use miniquad::*;
 
-use clipboard::ClipboardProvider;
-
 use imgui::{ClipboardBackend, DrawCmd, DrawCmdParams, DrawVert};
 
 const MAX_VERTICES: usize = 30000;
@@ -20,15 +18,15 @@ struct Stage {
     on_quit: Option<Box<dyn FnOnce() -> ()>>,
 }
 
-/// Clipboard support from the clipboard crate
-struct ClipboardSupport(pub clipboard::ClipboardContext);
+/// Clipboard support from the arboard crate
+struct ClipboardSupport(pub arboard::Clipboard);
 impl ClipboardBackend for ClipboardSupport {
     fn get(&mut self) -> Option<String> {
-        self.0.get_contents().ok()
+        self.0.get_text().ok()
     }
 
     fn set(&mut self, text: &str) {
-        let _ = self.0.set_contents(text.to_owned());
+        let _ = self.0.set_text(text.to_owned());
     }
 }
 
@@ -129,7 +127,7 @@ impl Stage {
             )
         };
 
-        if let Some(clip_backend) = clipboard::ClipboardContext::new()
+        if let Some(clip_backend) = arboard::Clipboard::new()
             .ok()
             .map(ClipboardSupport)
         {

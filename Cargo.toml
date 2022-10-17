@@ -9,7 +9,7 @@ repository = "https://github.com/not-fl3/imgui-miniquad-render"
 description = "miniquad based minimal imgui application wrapper"
 
 [dependencies]
-clipboard = "0.5"
+arboard = "3.1.0"
 miniquad = { version = "0.3.12" }
 glam = {version = "0.8", features = ["scalar-math"] }
 imgui = { version = "0.8.2" }
